@@ -18,6 +18,33 @@ class OpenIdProviderController < ApplicationController
 
   rescue_from ProtocolError, with: :handle_protocol_error
 
+  def process_request
+    open_id_request = server.decode_request(params)
+    Rails.logger.debug("Request : #{open_id_request}")
+    if open_id_request.kind_of?(CheckIDRequest)
+      if open_id_request.immediate
+        if !User.current.logged? || !authorized?(open_id_request)
+          render_response open_id_request.answer(false)
+        else
+          render_response build_success_answer(open_id_request)
+        end
+      else
+        if !User.current.logged?
+          redirect_to_login_page
+        elsif !open_id_request.id_select && !owned_by_login_user?(open_id_request.identity)
+          render_response open_id_request.answer(false)
+        elsif !authorized?(open_id_request)
+          show_confirm_page(open_id_request)
+        else
+          render_response build_success_answer(open_id_request)
+        end
+      end
+    else
+      open_id_response = server.handle_request(open_id_request)
+      render_response(open_id_response)
+    end
+  end
+
   def handle_direct_request
     open_id_request = server.decode_request(params)
     open_id_response = server.handle_request(open_id_request)
@@ -179,7 +206,8 @@ class OpenIdProviderController < ApplicationController
     if request.get?
       url = url_for(params)
     else
-      url = url_for(:controller => params[:controller], :action => params[:action], :id => params[:id], :project_id => params[:project_id])
+      #url = url_for(:controller => params[:controller], :action => params[:action], :id => params[:id], :project_id => params[:project_id])
+      url = params[:"openid.realm"]
     end
     redirect_to :controller => "account", :action => "login", :back_url => url
   end
